@@ -1,0 +1,56 @@
+{
+  "name": "service-center-cli",
+  "version": "1.0.0",
+  "description": "HTTP API gateway + service registry CLI. Single binary, path-prefix routing, auto port allocation for dev servers.",
+  "type": "module",
+  "bin": {
+    "service-center-cli": "./bin/cli.js",
+    "sccli": "./bin/cli.js"
+  },
+  "scripts": {
+    "build": "tsc",
+    "prepublishOnly": "pnpm run build && pnpm test",
+    "test": "tsx --test",
+    "test:watch": "tsx --test --watch",
+    "dev": "tsx src/cli.ts"
+  },
+  "keywords": [
+    "service-registry",
+    "service-discovery",
+    "api-gateway",
+    "reverse-proxy",
+    "http-proxy",
+    "cli",
+    "dev-server"
+  ],
+  "author": "anuoua <https://github.com/anuoua>",
+  "license": "MIT",
+  "homepage": "https://github.com/anuoua/service-center-cli#readme",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/anuoua/service-center-cli.git"
+  },
+  "bugs": {
+    "url": "https://github.com/anuoua/service-center-cli/issues"
+  },
+  "engines": {
+    "node": ">=22.15"
+  },
+  "files": [
+    "bin",
+    "dist",
+    "README.md",
+    "LICENSE"
+  ],
+  "packageManager": "pnpm@10.23.0",
+  "devDependencies": {
+    "@types/node": "^26.1.1",
+    "tsx": "^4.23.1",
+    "typescript": "^7.0.2"
+  },
+  "dependencies": {
+    "commander": "^15.0.0",
+    "http-proxy-middleware": "^4.2.0",
+    "pino": "^10.3.1"
+  }
+}
