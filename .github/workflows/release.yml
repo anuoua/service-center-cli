@@ -4,12 +4,6 @@ on:
   push:
     tags:
       - 'v*'
-  workflow_dispatch:
-    inputs:
-      dry-run:
-        description: 'Pack only, skip actual publish'
-        type: boolean
-        default: false
 
 # `id-token: write` is required for npm OIDC (passwordless publish via
 # trusted-publishers). `contents: read` is the minimum for checkout.
@@ -37,7 +31,7 @@ jobs:
       - name: Setup Node.js
         uses: actions/setup-node@v6
         with:
-          node-version: '22'
+          node-version: 24
           registry-url: 'https://registry.npmjs.org'
           cache: 'pnpm'
 
@@ -47,10 +41,6 @@ jobs:
       - name: Build & test (prepublishOnly)
         run: pnpm run prepublishOnly
 
-      - name: Publish (dry-run)
-        if: ${{ inputs.dry-run }}
-        run: npm publish --provenance --access public --dry-run
-
       - name: Publish
-        if: ${{ !inputs.dry-run }}
         run: npm publish --provenance --access public
+

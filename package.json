@@ -1,6 +1,6 @@
 {
   "name": "service-center-cli",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "description": "HTTP API gateway + service registry CLI. Single binary, path-prefix routing, auto port allocation for dev servers.",
   "type": "module",
   "bin": {
@@ -23,7 +23,7 @@
     "cli",
     "dev-server"
   ],
-  "author": "anuoua <https://github.com/anuoua>",
+  "author": "anuoua",
   "license": "MIT",
   "homepage": "https://github.com/anuoua/service-center-cli#readme",
   "repository": {
@@ -32,6 +32,10 @@
   },
   "bugs": {
     "url": "https://github.com/anuoua/service-center-cli/issues"
+  },
+  "publishConfig": {
+    "access": "public",
+    "provenance": true
   },
   "engines": {
     "node": ">=22.15"
