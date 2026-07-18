@@ -1,0 +1,56 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+    inputs:
+      dry-run:
+        description: 'Pack only, skip actual publish'
+        type: boolean
+        default: false
+
+# `id-token: write` is required for npm OIDC (passwordless publish via
+# trusted-publishers). `contents: read` is the minimum for checkout.
+permissions:
+  contents: read
+  id-token: write
+
+concurrency:
+  group: release-${{ github.ref_name }}
+  cancel-in-progress: false
+
+jobs:
+  publish:
+    name: Publish to npm
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v6
+        # Reads `packageManager` from package.json (pnpm@10.23.0).
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v6
+        with:
+          node-version: '22'
+          registry-url: 'https://registry.npmjs.org'
+          cache: 'pnpm'
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Build & test (prepublishOnly)
+        run: pnpm run prepublishOnly
+
+      - name: Publish (dry-run)
+        if: ${{ inputs.dry-run }}
+        run: npm publish --provenance --access public --dry-run
+
+      - name: Publish
+        if: ${{ !inputs.dry-run }}
+        run: npm publish --provenance --access public
