@@ -1,8 +1,6 @@
 import type { Route } from '../shared/types.js';
 
 export type RegistryMeta = {
-  ttlMs: number;
-  intervalMs: number;
   /** Display host (already normalized: 0.0.0.0 → 127.0.0.1). */
   host: string;
   port: number;
@@ -45,11 +43,9 @@ export function renderRoutes(
   meta: RegistryMeta,
 ): string {
   const divider = '\u2500'.repeat(72);
-  const header =
-    `sccli registry \u00b7 ${routes.length} route${routes.length === 1 ? '' : 's'} \u00b7 ` +
-    `ttl=${Math.round(meta.ttlMs / 1000)}s \u00b7 sweep=${Math.round(meta.intervalMs / 1000)}s \u00b7 Ctrl+C to stop`;
-
   const baseUrl = `http://${meta.host}:${meta.port}`;
+  const header =
+    `sccli registry \u00b7 ${baseUrl} \u00b7 ${routes.length} route${routes.length === 1 ? '' : 's'} \u00b7 Ctrl+C to stop`;
 
   if (routes.length === 0) {
     return [header, divider, '(no routes registered)', divider].join('\n');

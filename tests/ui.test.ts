@@ -4,7 +4,7 @@ import assert from 'node:assert/strict';
 import { renderRoutes } from '../src/registry/ui.ts';
 import type { Route } from '../src/shared/types.ts';
 
-const META = { ttlMs: 30000, intervalMs: 10000, host: '127.0.0.1', port: 8080 };
+const META = { host: '127.0.0.1', port: 8080 };
 
 describe('renderRoutes', () => {
   it('renders an empty state when no routes', () => {
@@ -13,10 +13,9 @@ describe('renderRoutes', () => {
     assert.match(out, /no routes registered/);
   });
 
-  it('renders a header line with ttl/sweep in seconds', () => {
+  it('renders the registry URL in the header', () => {
     const out = renderRoutes([], META);
-    assert.match(out, /ttl=30s/);
-    assert.match(out, /sweep=10s/);
+    assert.match(out, /http:\/\/127\.0\.0\.1:8080/);
     assert.match(out, /Ctrl\+C to stop/);
   });
 
@@ -62,7 +61,7 @@ describe('renderRoutes', () => {
   it('uses displayHost and port for the URL column', () => {
     const out = renderRoutes(
       [{ prefix: '/x', target: 't', lastSeen: 0 }],
-      { ttlMs: 30000, intervalMs: 10000, host: 'example.com', port: 9090 },
+      { host: 'example.com', port: 9090 },
     );
     assert.match(out, /http:\/\/example\.com:9090\/x/);
   });

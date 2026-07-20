@@ -35,7 +35,7 @@ sccli server \
 The registry prints a live route table to stdout:
 
 ```
-sccli registry · 2 routes · ttl=30s · sweep=10s · Ctrl+C to stop
+sccli registry · http://127.0.0.1:8080 · 2 routes · Ctrl+C to stop
 ────────────────────────────────────────────────────────────────────────
 PREFIX       TARGET                URL
 /api/orders  http://10.0.0.6:4000  http://127.0.0.1:8080/api/orders

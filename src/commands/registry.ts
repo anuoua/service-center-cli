@@ -93,8 +93,6 @@ export async function startRegistry(opts: RegistryOptions): Promise<RegistryHand
     const displayHost = opts.host === '0.0.0.0' || opts.host === '::' ? '127.0.0.1' : opts.host;
     const render = (): void => {
       const frame = renderRoutes(store.list(), {
-        ttlMs: opts.ttlMs,
-        intervalMs: opts.intervalMs,
         host: displayHost,
         port: actualPort,
       });
