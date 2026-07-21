@@ -27,29 +27,50 @@ const DEFAULT_KILL_GRACE_MS = 5000;
 const PROBE_POLL_INTERVAL_MS = 100;
 const POST_SIGKILL_WAIT_MS = 100;
 
+// Loopback families raced by the readiness probe. A child that
+// `listen()`s on `localhost` may bind IPv6-only (`::1`) on systems where
+// `dns.lookup('localhost')` returns `::1` first (default on macOS); a child
+// that binds an explicit family binds only that one. Probing both ensures we
+// detect readiness regardless of which family the child chose.
+const LOOPBACK_HOSTS = ['127.0.0.1', '::1'] as const;
+
 function defaultSpawn(command: string, args: string[], opts: { env: Record<string, string> }): ChildProcess {
   return spawn(command, args, { stdio: 'inherit', env: opts.env });
 }
 
-function defaultProbePort(port: number, timeoutMs: number): Promise<void> {
+export function defaultProbePort(port: number, timeoutMs: number): Promise<void> {
   const hasDeadline = timeoutMs > 0;
   const deadline = Date.now() + timeoutMs;
 
   const tryConnect = (): Promise<void> =>
     new Promise<void>((resolve, reject) => {
-      const socket = net.createConnection({ port, host: '127.0.0.1' });
-      const cleanup = () => {
-        socket.removeAllListeners();
-        socket.destroy();
+      const sockets: net.Socket[] = [];
+      let remaining = 0;
+      let firstError: Error | null = null;
+
+      const done = (ok: boolean): void => {
+        for (const s of sockets) {
+          s.removeAllListeners();
+          s.destroy();
+        }
+        if (ok) {
+          resolve();
+        } else {
+          reject(firstError ?? new Error(`connect failed on port ${port}`));
+        }
       };
-      socket.once('connect', () => {
-        cleanup();
-        resolve();
-      });
-      socket.once('error', (err) => {
-        cleanup();
-        reject(err);
-      });
+
+      for (const host of LOOPBACK_HOSTS) {
+        const socket = net.createConnection({ port, host });
+        sockets.push(socket);
+        remaining += 1;
+        socket.once('connect', () => done(true));
+        socket.once('error', (err) => {
+          if (firstError === null) firstError = err as Error;
+          remaining -= 1;
+          if (remaining === 0) done(false);
+        });
+      }
     });
 
   return new Promise<void>((resolve, reject) => {

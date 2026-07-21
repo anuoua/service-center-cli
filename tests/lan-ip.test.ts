@@ -81,7 +81,7 @@ describe('detectLanIp', () => {
     assert.equal(
       detectLanIp({
         en0: [
-          { address: 'fe80::1', netmask: 'ffff:ffff::', family: 'IPv6', mac: '...', internal: false, cidr: '...' },
+          { address: 'fe80::1', netmask: 'ffff:ffff::', family: 'IPv6', mac: '...', internal: false, cidr: '...', scopeid: 0 },
           v4('192.168.1.42'),
         ],
       }),

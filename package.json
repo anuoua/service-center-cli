@@ -8,7 +8,8 @@
     "sccli": "./bin/cli.js"
   },
   "scripts": {
-    "build": "tsc",
+    "build": "tsc -p tsconfig.build.json",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
     "prepublishOnly": "pnpm run build && pnpm test",
     "test": "tsx --test",
     "test:watch": "tsx --test --watch",

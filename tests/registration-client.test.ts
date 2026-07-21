@@ -75,11 +75,10 @@ describe('createRegistrationClient', () => {
     });
 
     it('POSTs to <base>/register with JSON content-type and stringified body', async () => {
-      let capturedUrl: string | null = null;
-      let capturedInit: MockInit | null = null;
+      const captured: { url: string | null; init: MockInit | null } = { url: null, init: null };
       const fetchFn: MockFetch = async (url, init) => {
-        capturedUrl = url;
-        capturedInit = init;
+        captured.url = url;
+        captured.init = init;
         return okResponse();
       };
       const client = makeClient(fetchFn);
@@ -88,27 +87,26 @@ describe('createRegistrationClient', () => {
         target: 'http://10.0.0.5:3000',
       };
       await client.register(req);
-      assert.equal(capturedUrl, 'http://127.0.0.1:8080/__registry/register');
-      assert.ok(capturedInit);
-      assert.equal(capturedInit!.method, 'POST');
-      assert.equal(capturedInit!.headers?.['content-type'], 'application/json');
-      assert.deepEqual(JSON.parse(capturedInit!.body ?? '{}'), req);
+      assert.equal(captured.url, 'http://127.0.0.1:8080/__registry/register');
+      assert.ok(captured.init);
+      assert.equal(captured.init.method, 'POST');
+      assert.equal(captured.init.headers?.['content-type'], 'application/json');
+      assert.deepEqual(JSON.parse(captured.init.body ?? '{}'), req);
     });
   });
 
   describe('heartbeat', () => {
     it('POSTs to <base>/heartbeat', async () => {
-      let capturedUrl: string | null = null;
-      let capturedInit: MockInit | null = null;
+      const captured: { url: string | null; init: MockInit | null } = { url: null, init: null };
       const fetchFn: MockFetch = async (url, init) => {
-        capturedUrl = url;
-        capturedInit = init;
+        captured.url = url;
+        captured.init = init;
         return okResponse();
       };
       const client = makeClient(fetchFn);
       await client.heartbeat({ prefix: '/api', target: 'http://10.0.0.5:3000' });
-      assert.equal(capturedUrl, 'http://127.0.0.1:8080/__registry/heartbeat');
-      assert.equal(capturedInit?.method, 'POST');
+      assert.equal(captured.url, 'http://127.0.0.1:8080/__registry/heartbeat');
+      assert.equal(captured.init?.method, 'POST');
     });
   });
 

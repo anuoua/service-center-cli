@@ -1,9 +1,11 @@
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 import { EventEmitter } from 'node:events';
+import http from 'node:http';
+import type { AddressInfo } from 'node:net';
 import type { ChildProcess, SpawnOptions } from 'node:child_process';
 
-import { startChild } from '../src/server/child-runner.ts';
+import { startChild, defaultProbePort } from '../src/server/child-runner.ts';
 
 class FakeChild extends EventEmitter {
   pid = 12345;
@@ -211,5 +213,29 @@ describe('startChild', () => {
     // accepts opts without spawnFn.
     const opts: SpawnOptions = { stdio: 'inherit', env: { ...process.env, PORT: '1234' } };
     assert.equal(opts.env!.PORT, '1234');
+  });
+});
+
+describe('defaultProbePort', () => {
+  it('succeeds against an IPv6-only (::1) listener', async () => {
+    const server = http.createServer((_q, r) => r.end('hi'));
+    await new Promise<void>((resolve) => server.listen(0, '::1', resolve));
+    const port = (server.address() as AddressInfo).port;
+    try {
+      await assert.doesNotReject(defaultProbePort(port, 2000));
+    } finally {
+      server.close();
+    }
+  });
+
+  it('succeeds against an IPv4-only (127.0.0.1) listener', async () => {
+    const server = http.createServer((_q, r) => r.end('hi'));
+    await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve));
+    const port = (server.address() as AddressInfo).port;
+    try {
+      await assert.doesNotReject(defaultProbePort(port, 2000));
+    } finally {
+      server.close();
+    }
   });
 });

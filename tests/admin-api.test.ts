@@ -36,7 +36,7 @@ async function sendJson(
   const resp = await fetch(url, {
     method: init.method,
     headers: init.headers ?? { 'content-type': 'application/json' },
-    body: init.body,
+    ...(init.body !== undefined ? { body: init.body } : {}),
   });
   const text = await resp.text();
   let body: JsonBody = undefined;
@@ -77,9 +77,11 @@ describe('admin api', () => {
         lastSeen: number;
       }>;
       assert.equal(routes.length, 1);
-      assert.equal(routes[0].prefix, '/api');
-      assert.equal(routes[0].target, 'http://localhost:3000');
-      assert.equal(typeof routes[0].lastSeen, 'number');
+      const route = routes[0];
+      assert.ok(route);
+      assert.equal(route.prefix, '/api');
+      assert.equal(route.target, 'http://localhost:3000');
+      assert.equal(typeof route.lastSeen, 'number');
     } finally {
       await close();
     }
@@ -101,7 +103,9 @@ describe('admin api', () => {
       const list = await sendJson(`${url}${ADMIN}/routes`, { method: 'GET' });
       const routes = list.body as Array<{ prefix: string; target: string }>;
       assert.equal(routes.length, 1);
-      assert.equal(routes[0].target, 'http://b:2');
+      const route = routes[0];
+      assert.ok(route);
+      assert.equal(route.target, 'http://b:2');
     } finally {
       await close();
     }
@@ -159,11 +163,14 @@ describe('admin api', () => {
         method: 'POST',
         body: JSON.stringify({ prefix: '/api', target: 'http://a:1' }),
       });
-      const before = (
+      const routesBefore = (
         (await sendJson(`${url}${ADMIN}/routes`, { method: 'GET' })).body as Array<{
           lastSeen: number;
         }>
-      )[0].lastSeen;
+      );
+      const routeBefore = routesBefore[0];
+      assert.ok(routeBefore);
+      const before = routeBefore.lastSeen;
 
       await sleep(50);
 
@@ -171,11 +178,14 @@ describe('admin api', () => {
         method: 'POST',
         body: JSON.stringify({ prefix: '/api', target: 'http://a:1' }),
       });
-      const after = (
+      const routesAfter = (
         (await sendJson(`${url}${ADMIN}/routes`, { method: 'GET' })).body as Array<{
           lastSeen: number;
         }>
-      )[0].lastSeen;
+      );
+      const routeAfter = routesAfter[0];
+      assert.ok(routeAfter);
+      const after = routeAfter.lastSeen;
 
       assert.ok(after > before, 'lastSeen should advance');
     } finally {
