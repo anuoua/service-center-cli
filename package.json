@@ -1,6 +1,6 @@
 {
   "name": "service-center-cli",
-  "version": "1.0.3",
+  "version": "1.0.4",
   "description": "HTTP API gateway + service registry CLI. Single binary, path-prefix routing, auto port allocation for dev servers.",
   "type": "module",
   "bin": {
