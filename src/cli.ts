@@ -51,7 +51,7 @@ program
   .command('server')
   .description('Run a service that registers with the registry')
   .requiredOption('-r, --registry <url>', 'registry URL')
-  .requiredOption('-x, --prefix <path>', 'route prefix')
+  .requiredOption('-x, --prefix <paths...>', 'route prefix(es)')
   .option('-B, --bind-host <str>', 'target hostname/IP the registry should use to reach this host; defaults to detected LAN IP (127.0.0.1 when nothing found)')
   .option('--heartbeat <ms>', 'heartbeat interval ms', '10000')
   .option('--ready-timeout <ms>', 'max wait for child to bind its port; 0 = never timeout', '0')
@@ -74,7 +74,7 @@ program
 
     const serverOpts = {
       registryUrl: String(opts.registry),
-      prefix: String(opts.prefix),
+      prefix: opts.prefix,
       heartbeatMs: Number(opts.heartbeat),
       readyTimeoutMs: Number(opts.readyTimeout),
       logLevel: String(opts.logLevel),
