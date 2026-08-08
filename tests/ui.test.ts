@@ -4,7 +4,7 @@ import assert from 'node:assert/strict';
 import { renderRoutes } from '../src/registry/ui.ts';
 import type { Route } from '../src/shared/types.ts';
 
-const META = { host: '127.0.0.1', port: 8080 };
+const META = { host: '127.0.0.1', port: 8080, scheme: 'http' as const };
 
 describe('renderRoutes', () => {
   it('renders an empty state when no routes', () => {
@@ -61,7 +61,7 @@ describe('renderRoutes', () => {
   it('uses displayHost and port for the URL column', () => {
     const out = renderRoutes(
       [{ prefix: '/x', target: 't', lastSeen: 0 }],
-      { host: 'example.com', port: 9090 },
+      { host: 'example.com', port: 9090, scheme: 'http' },
     );
     assert.match(out, /http:\/\/example\.com:9090\/x/);
   });

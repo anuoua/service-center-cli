@@ -24,10 +24,23 @@ program
   .option('-H, --host <str>', 'proxy listen host', '0.0.0.0')
   .option('-A, --admin-prefix <p>', 'admin API prefix', '/__registry')
   .option('-r, --routes <file>', 'static routes JSON file (loaded at startup; reloaded on SIGHUP)')
+  .option('--tls', 'enable HTTPS with an auto-generated self-signed certificate')
+  .option('--tls-cert <file>', 'TLS certificate PEM file (with --tls-key)')
+  .option('--tls-key <file>', 'TLS private key PEM file (with --tls-cert)')
   .option('--ttl <ms>', 'heartbeat TTL in ms', '30000')
   .option('--interval <ms>', 'sweep interval in ms', '10000')
   .option('-l, --log-level <str>', 'trace|debug|info|warn|error', 'info')
   .action(async (opts) => {
+    const tlsCert = opts.tlsCert !== undefined ? String(opts.tlsCert) : undefined;
+    const tlsKey = opts.tlsKey !== undefined ? String(opts.tlsKey) : undefined;
+    if ((tlsCert === undefined) !== (tlsKey === undefined)) {
+      console.error('error: --tls-cert and --tls-key must be provided together');
+      process.exit(1);
+    }
+    if (opts.tls && tlsCert !== undefined) {
+      console.error('error: --tls cannot be combined with --tls-cert/--tls-key');
+      process.exit(1);
+    }
     const handle = await startRegistry({
       port: Number(opts.port),
       host: String(opts.host),
@@ -36,6 +49,8 @@ program
       intervalMs: Number(opts.interval),
       logLevel: String(opts.logLevel),
       ...(opts.routes !== undefined ? { routesFile: String(opts.routes) } : {}),
+      ...(opts.tls ? { tls: true } : {}),
+      ...(tlsCert !== undefined ? { tlsCertFile: tlsCert, tlsKeyFile: tlsKey as string } : {}),
     });
 
     const shutdown = (sig: NodeJS.Signals): void => {
@@ -63,6 +78,7 @@ program
   .option('-B, --bind-host <str>', 'target hostname/IP the registry should use to reach this host; defaults to detected LAN IP (127.0.0.1 when nothing found)')
   .option('--heartbeat <ms>', 'heartbeat interval ms', '10000')
   .option('--ready-timeout <ms>', 'max wait for child to bind its port; 0 = never timeout', '0')
+  .option('--insecure', 'skip TLS certificate verification when talking to the registry (self-signed certs)')
   .option('-l, --log-level <str>', 'trace|debug|info|warn|error', 'info')
   .allowExcessArguments()
   .action(async (opts) => {
@@ -87,6 +103,7 @@ program
       readyTimeoutMs: Number(opts.readyTimeout),
       logLevel: String(opts.logLevel),
       childCommand,
+      ...(opts.insecure ? { insecure: true } : {}),
       ...(opts.bindHost !== undefined ? { bindHost: String(opts.bindHost) } : {}),
       ...(childRest !== undefined ? { childArgs: childRest } : {}),
     };

@@ -17,6 +17,8 @@ export type ServerOptions = {
   logLevel: string;
   childCommand: string;
   childArgs?: string[];
+  /** Skip TLS certificate verification when talking to the registry. */
+  insecure?: boolean;
 };
 
 const REGISTER_DELAYS_MS = [1000, 2000, 4000] as const;
@@ -46,6 +48,7 @@ export async function runServer(opts: ServerOptions): Promise<number> {
 
   const client: RegistrationClient = createRegistrationClient({
     registryUrl: opts.registryUrl,
+    ...(opts.insecure === true ? { insecure: true } : {}),
   });
 
   async function registerPrefix(

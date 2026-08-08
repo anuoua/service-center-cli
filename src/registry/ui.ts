@@ -4,6 +4,8 @@ export type RegistryMeta = {
   /** Display host (already normalized: 0.0.0.0 → 127.0.0.1). */
   host: string;
   port: number;
+  /** URL scheme of the gateway listener. */
+  scheme: 'http' | 'https';
 };
 
 type Row = {
@@ -43,7 +45,7 @@ export function renderRoutes(
   meta: RegistryMeta,
 ): string {
   const divider = '\u2500'.repeat(72);
-  const baseUrl = `http://${meta.host}:${meta.port}`;
+  const baseUrl = `${meta.scheme}://${meta.host}:${meta.port}`;
   const header =
     `sccli registry \u00b7 ${baseUrl} \u00b7 ${routes.length} route${routes.length === 1 ? '' : 's'} \u00b7 Ctrl+C to stop`;
 

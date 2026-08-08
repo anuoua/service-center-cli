@@ -1,4 +1,5 @@
 import http from 'node:http';
+import https from 'node:https';
 import type { Server, IncomingMessage, ServerResponse } from 'node:http';
 import type { Socket } from 'node:net';
 import type { Logger } from 'pino';
@@ -7,7 +8,9 @@ import { RouteStore } from '../registry/store.js';
 import { createAdminHandler } from '../registry/admin-handler.js';
 import { createProxyHandler } from '../registry/proxy-handler.js';
 import { loadStaticRoutesFile } from '../registry/static-routes.js';
+import { createTlsConfig } from '../registry/tls.js';
 import { renderRoutes } from '../registry/ui.js';
+import { detectLanIp } from '../server/lan-ip.js';
 import { createLogger } from '../shared/logging.js';
 
 export type RegistryOptions = {
@@ -21,6 +24,12 @@ export type RegistryOptions = {
   ui?: boolean;
   /** Path to a JSON file of static routes; loaded at startup, reloaded on SIGHUP. */
   routesFile?: string;
+  /** Enable HTTPS with an auto-generated self-signed certificate. */
+  tls?: boolean;
+  /** User-provided TLS certificate PEM file (with tlsKeyFile). */
+  tlsCertFile?: string;
+  /** User-provided TLS private key PEM file (with tlsCertFile). */
+  tlsKeyFile?: string;
 };
 
 export type RegistryHandle = {
@@ -41,6 +50,19 @@ export async function startRegistry(opts: RegistryOptions): Promise<RegistryHand
   const adminHandler = createAdminHandler(store);
   const proxy = createProxyHandler(store);
 
+  // Self-signed SANs must cover how the registry is actually reached: the
+  // loopback aliases plus the current LAN IP (for other devices / browsers
+  // on the network hitting it by IP).
+  const altNames = ['localhost', '127.0.0.1', '::1'];
+  const lanIp = detectLanIp();
+  if (lanIp !== '127.0.0.1' && !altNames.includes(lanIp)) altNames.push(lanIp);
+  const tls = await createTlsConfig({
+    ...(opts.tls !== undefined ? { tls: opts.tls } : {}),
+    ...(opts.tlsCertFile !== undefined ? { tlsCertFile: opts.tlsCertFile } : {}),
+    ...(opts.tlsKeyFile !== undefined ? { tlsKeyFile: opts.tlsKeyFile } : {}),
+    altNames,
+  });
+
   if (opts.routesFile !== undefined) {
     const loaded = await loadStaticRoutesFile(opts.routesFile);
     if (!loaded.ok) {
@@ -57,16 +79,21 @@ export async function startRegistry(opts: RegistryOptions): Promise<RegistryHand
     );
   }
 
-  const server: Server = http.createServer(
-    (req: IncomingMessage, res: ServerResponse) => {
-      const url = req.url ?? '/';
-      if (isAdminPath(url, opts.adminPrefix)) {
-        void adminHandler(req, res);
-        return;
-      }
-      proxy.handle(req, res);
-    },
-  );
+  const requestListener = (
+    req: IncomingMessage,
+    res: ServerResponse,
+  ): void => {
+    const url = req.url ?? '/';
+    if (isAdminPath(url, opts.adminPrefix)) {
+      void adminHandler(req, res);
+      return;
+    }
+    proxy.handle(req, res);
+  };
+
+  const server: Server = tls
+    ? https.createServer({ key: tls.key, cert: tls.cert }, requestListener)
+    : http.createServer(requestListener);
 
   server.on('upgrade', (req: IncomingMessage, socket: Socket, head: Buffer) => {
     const url = req.url ?? '/';
@@ -107,6 +134,17 @@ export async function startRegistry(opts: RegistryOptions): Promise<RegistryHand
         ? address.port
         : opts.port;
 
+  if (tls) {
+    if (tls.mode === 'self-signed') {
+      logger.info(
+        { altNames: [...tls.altNames] },
+        'https enabled (self-signed certificate); browsers will warn on first visit — proceed anyway, secure-context APIs work; use mkcert + --tls-cert/--tls-key for a warning-free setup',
+      );
+    } else {
+      logger.info({}, 'https enabled (provided certificate)');
+    }
+  }
+
   let uiTimer: NodeJS.Timeout | undefined;
   if (opts.ui !== false) {
     const displayHost = opts.host === '0.0.0.0' || opts.host === '::' ? '127.0.0.1' : opts.host;
@@ -114,6 +152,7 @@ export async function startRegistry(opts: RegistryOptions): Promise<RegistryHand
       const frame = renderRoutes(store.list(), {
         host: displayHost,
         port: actualPort,
+        scheme: tls ? 'https' : 'http',
       });
       process.stdout.write(`\x1B[H\x1B[J${frame}\n`);
     };

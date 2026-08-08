@@ -2,7 +2,7 @@ import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 
 import { createRegistrationClient } from '../src/server/registration-client.ts';
-import type { CreateClientOptions } from '../src/server/registration-client.ts';
+import type { CreateClientOptions, FetchFn } from '../src/server/registration-client.ts';
 
 type MockResponse = {
   status: number;
@@ -19,7 +19,7 @@ function makeClient(
 ): ReturnType<typeof createRegistrationClient> {
   const full: CreateClientOptions = {
     registryUrl: opts.registryUrl ?? 'http://127.0.0.1:8080',
-    fetchFn: fetchFn as unknown as typeof fetch,
+    fetchFn: fetchFn as unknown as FetchFn,
   };
   if (opts.adminPrefix !== undefined) {
     full.adminPrefix = opts.adminPrefix;

@@ -70,6 +70,9 @@ sccli server \
 | `-H, --host` | `0.0.0.0` | Listen host |
 | `-A, --admin-prefix` | `/__registry` | Reserved prefix for the admin API (service prefixes can't collide with it) |
 | `-r, --routes <file>` | — | Static routes JSON file, loaded at startup and reloaded on `SIGHUP` |
+| `--tls` | — | Enable HTTPS with an auto-generated self-signed certificate |
+| `--tls-cert <file>` | — | TLS certificate PEM file (use with `--tls-key`) |
+| `--tls-key <file>` | — | TLS private key PEM file (use with `--tls-cert`) |
 | `--ttl` | `30000` | Heartbeat TTL in ms; routes older than this are evicted |
 | `--interval` | `10000` | Sweep interval for eviction |
 | `-l, --log-level` | `info` | `trace` \| `debug` \| `info` \| `warn` \| `error` |
@@ -85,9 +88,35 @@ Logs go to **stderr**; the route table goes to **stdout**.
 | `-B, --bind-host` | auto-detected LAN IP | Hostname/IP the registry uses to reach this host |
 | `--heartbeat` | `10000` | Heartbeat interval in ms |
 | `--ready-timeout` | `0` | Max wait for the child to bind its port in ms; `0` = never timeout |
+| `--insecure` | — | Skip TLS certificate verification when talking to the registry (self-signed certs) |
 | `-- <cmd> [args...]` | _required_ | Child command; `{port}` substituted, `PORT` env injected |
 
 Re-registering the same prefix overwrites the target (idempotent).
+
+## HTTPS (secure context for local dev)
+
+Browsers only grant secure-context APIs (`navigator.clipboard`, `crypto.subtle`,
+`getUserMedia`, …) to `https://` origins — or `http://localhost`. When you
+reach the registry by **LAN IP** (other devices, mobile testing) you need
+HTTPS. Start the registry with:
+
+```bash
+sccli registry --tls
+# or with your own certs (e.g. from mkcert, for a warning-free setup):
+sccli registry --tls-cert ./server.crt --tls-key ./server.key
+```
+
+- `--tls` generates an ephemeral self-signed certificate at startup whose SAN
+  covers `localhost`, `127.0.0.1`, `::1` and your current LAN IP.
+- Browsers warn on the first visit — **proceed anyway**; the page is still a
+  secure context and the APIs work. For zero warnings, generate certs with
+  [mkcert](https://github.com/FiloSottile/mkcert) and pass them via
+  `--tls-cert`/`--tls-key`.
+- The route table shows `https://` URLs; WebSocket upgrades work over `wss`.
+- Services talking to the registry over TLS must skip verification for
+  self-signed certs: add `--insecure` to `sccli server` (dev only).
+- `--tls` cannot be combined with `--tls-cert`/`--tls-key`; the two files must
+  be provided together.
 
 ## Static routes (legacy services)
 
@@ -150,7 +179,7 @@ rule to remap the path before it hits the upstream:
 
 ## Limitations
 
-- HTTP only (no TLS termination, no TCP)
+- HTTP/HTTPS only (no TLS termination for upstreams, no TCP)
 - No auth on the admin API — bind to localhost or a trusted network
 - In-memory state: no persistence, no clustering, no load balancing, no metrics
 
