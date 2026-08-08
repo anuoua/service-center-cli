@@ -1,15 +1,21 @@
 #!/usr/bin/env node
+import { createRequire } from 'node:module';
 import { Command } from 'commander';
 
 import { startRegistry } from './commands/registry.js';
 import { runServer } from './commands/server.js';
+
+// Read the version from package.json at runtime so --version can never
+// drift out of sync with the published release.
+const require = createRequire(import.meta.url);
+const pkg = require('../package.json') as { version: string };
 
 const program = new Command();
 
 program
   .name('sccli')
   .description('Service registry and proxy gateway CLI')
-  .version('1.0.0');
+  .version(pkg.version);
 
 program
   .command('registry')
