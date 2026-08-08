@@ -10,7 +10,7 @@ import { detectLanIp } from '../server/lan-ip.js';
 
 export type ServerOptions = {
   registryUrl: string;
-  prefix: string;
+  prefix: string[];
   bindHost?: string;
   heartbeatMs: number;
   readyTimeoutMs: number;
@@ -48,33 +48,47 @@ export async function runServer(opts: ServerOptions): Promise<number> {
     registryUrl: opts.registryUrl,
   });
 
-  let lastResult: RpcResult | undefined;
-  for (let attempt = 0; attempt <= REGISTER_DELAYS_MS.length; attempt++) {
-    lastResult = await client.register({
-      prefix: opts.prefix,
-      target,
-    });
-    if (lastResult.ok) break;
-    if (lastResult.status >= 400 && lastResult.status < 500) break;
-    const delay = REGISTER_DELAYS_MS[attempt];
-    if (delay !== undefined) await sleep(delay);
+  async function registerPrefix(
+    client: RegistrationClient,
+    prefix: string,
+    target: string,
+  ): Promise<RpcResult> {
+    for (let attempt = 0; attempt <= REGISTER_DELAYS_MS.length; attempt++) {
+      const result = await client.register({ prefix, target });
+      if (result.ok) return result;
+      if (result.status >= 400 && result.status < 500) return result;
+      const delay = REGISTER_DELAYS_MS[attempt];
+      if (delay !== undefined) await sleep(delay);
+    }
+    return { ok: false, status: 0, error: { error: 'max retries exceeded' } };
   }
 
-  if (!lastResult || !lastResult.ok) {
-    logger.error({ result: lastResult }, 'register failed');
-    await child.kill();
-    return 1;
+  const registeredPrefixes: string[] = [];
+  for (const prefix of opts.prefix) {
+    const result = await registerPrefix(client, prefix, target);
+    if (result.ok) {
+      registeredPrefixes.push(prefix);
+    } else {
+      logger.error({ prefix, result }, 'register failed');
+      for (const p of registeredPrefixes) {
+        await client.deregister({ prefix: p }).catch(() => {});
+      }
+      await child.kill();
+      return 1;
+    }
   }
 
   const interval = setInterval(() => {
-    client
-      .heartbeat({ prefix: opts.prefix, target })
-      .catch((err: unknown) => {
-        logger.warn(
-          { err: err instanceof Error ? err.message : String(err) },
-          'heartbeat failed',
-        );
-      });
+    for (const prefix of opts.prefix) {
+      client
+        .heartbeat({ prefix, target })
+        .catch((err: unknown) => {
+          logger.warn(
+            { err: err instanceof Error ? err.message : String(err), prefix },
+            'heartbeat failed',
+          );
+        });
+    }
   }, opts.heartbeatMs);
 
   let resolver: ((sig: NodeJS.Signals) => void) | null = null;
@@ -104,13 +118,15 @@ export async function runServer(opts: ServerOptions): Promise<number> {
     process.off('SIGINT', onSignal);
     process.off('SIGTERM', onSignal);
     clearInterval(interval);
-    try {
-      await client.deregister({ prefix: opts.prefix });
-    } catch (err) {
-      logger.warn(
-        { err: err instanceof Error ? err.message : String(err) },
-        'deregister failed',
-      );
+    for (const prefix of registeredPrefixes) {
+      try {
+        await client.deregister({ prefix });
+      } catch (err) {
+        logger.warn(
+          { err: err instanceof Error ? err.message : String(err), prefix },
+          'deregister failed',
+        );
+      }
     }
     await child.kill();
   }

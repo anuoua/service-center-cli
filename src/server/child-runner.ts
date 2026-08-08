@@ -95,13 +95,21 @@ export function startChild(opts: StartChildOptions): ChildHandle {
 
   const substitutedArgs = opts.args.map((a) => a.split('{port}').join(String(opts.port)));
 
+  let command = opts.command;
+  let args = substitutedArgs;
+
+  if (process.platform === 'win32' && command !== 'cmd') {
+    args = ['/c', command, ...substitutedArgs];
+    command = 'cmd';
+  }
+
   const mergedEnv: Record<string, string> = {
     ...(process.env as Record<string, string>),
     PORT: String(opts.port),
     ...(opts.env ?? {}),
   };
 
-  const child = spawnFn(opts.command, substitutedArgs, { env: mergedEnv });
+  const child = spawnFn(command, args, { env: mergedEnv });
 
   const exited = new Promise<{ code: number | null; signal: Signals | null }>((resolve) => {
     child.once('exit', (code, signal) => resolve({ code: code ?? null, signal: signal ?? null }));
