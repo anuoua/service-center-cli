@@ -2,6 +2,9 @@ import { describe, it, before, after } from 'node:test';
 import assert from 'node:assert/strict';
 import http from 'node:http';
 import type { AddressInfo } from 'node:net';
+import { mkdtemp, rm, writeFile } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 
 import { startRegistry } from '../src/commands/registry.ts';
 import type { RegistryOptions, RegistryHandle } from '../src/commands/registry.ts';
@@ -206,6 +209,154 @@ describe('proxy e2e: TTL eviction', () => {
     assert.equal(after.status, 404);
     const body = await after.json();
     assert.deepEqual(body, { error: 'no route' });
+  });
+});
+
+describe('proxy e2e: static routes from file', () => {
+  let registry: RegistryHandle;
+  let backend: Backend;
+  let routesFile: string;
+  let tmpDir: string;
+
+  before(async () => {
+    tmpDir = await mkdtemp(join(tmpdir(), 'sccli-e2e-'));
+    backend = await startBackend('backend-static');
+    routesFile = join(tmpDir, 'routes.json');
+    await writeFile(
+      routesFile,
+      JSON.stringify([
+        { prefix: '/legacy/orders', target: `http://127.0.0.1:${backend.port}` },
+      ]),
+      'utf8',
+    );
+    registry = await startRegistry(
+      defaultRegistryOpts({
+        routesFile,
+        ttlMs: 100,
+        intervalMs: 50,
+      }),
+    );
+  });
+
+  after(async () => {
+    await registry.stop();
+    await backend.close();
+    await rm(tmpDir, { recursive: true, force: true });
+  });
+
+  it('serves requests to a static route', async () => {
+    const resp = await fetchThrough(registry.port, '/legacy/orders/42');
+    assert.equal(resp.status, 200);
+    const body = (await resp.json()) as { id: string; url: string };
+    assert.equal(body.id, 'backend-static');
+    assert.equal(body.url, '/legacy/orders/42');
+  });
+
+  it('static routes survive TTL eviction', async () => {
+    await new Promise<void>((r) => setTimeout(r, 300));
+    const resp = await fetchThrough(registry.port, '/legacy/orders/1');
+    assert.equal(resp.status, 200);
+  });
+
+  it('lists static routes with static: true in the admin API', async () => {
+    const resp = await fetch(`http://127.0.0.1:${registry.port}${ADMIN}/routes`);
+    assert.equal(resp.status, 200);
+    const routes = (await resp.json()) as Array<{
+      prefix: string;
+      static?: boolean;
+    }>;
+    assert.ok(routes.some((r) => r.prefix === '/legacy/orders' && r.static === true));
+  });
+
+  it('rejects dynamic register on a static prefix with 409', async () => {
+    const reg = await postJson(
+      `http://127.0.0.1:${registry.port}${ADMIN}/register`,
+      { prefix: '/legacy/orders', target: `http://127.0.0.1:${backend.port}` },
+    );
+    assert.equal(reg.status, 409);
+  });
+});
+
+describe('proxy e2e: static routes with path rewrite', () => {
+  let registry: RegistryHandle;
+  let backend: Backend;
+  let routesFile: string;
+  let tmpDir: string;
+
+  before(async () => {
+    tmpDir = await mkdtemp(join(tmpdir(), 'sccli-e2e-'));
+    backend = await startBackend('backend-rewrite');
+    routesFile = join(tmpDir, 'routes.json');
+    // Two prefixes share the same target but rewrite to different upstream
+    // paths — must get distinct proxy instances.
+    await writeFile(
+      routesFile,
+      JSON.stringify([
+        {
+          prefix: '/svc-a',
+          target: `http://127.0.0.1:${backend.port}`,
+          rewrite: { pattern: '^/svc-a', to: '/a' },
+        },
+        {
+          prefix: '/svc-b',
+          target: `http://127.0.0.1:${backend.port}`,
+          rewrite: { pattern: '^/svc-b', to: '/b' },
+        },
+        {
+          prefix: '/strip',
+          target: `http://127.0.0.1:${backend.port}`,
+          rewrite: { pattern: '^/strip', to: '' },
+        },
+      ]),
+      'utf8',
+    );
+    registry = await startRegistry(defaultRegistryOpts({ routesFile }));
+  });
+
+  after(async () => {
+    await registry.stop();
+    await backend.close();
+    await rm(tmpDir, { recursive: true, force: true });
+  });
+
+  it('rewrites the path before forwarding', async () => {
+    const resp = await fetchThrough(registry.port, '/svc-a/users/1');
+    assert.equal(resp.status, 200);
+    const body = (await resp.json()) as { url: string };
+    assert.equal(body.url, '/a/users/1');
+  });
+
+  it('distinct rewrites on the same target do not cross-contaminate', async () => {
+    const resp = await fetchThrough(registry.port, '/svc-b/orders/2');
+    assert.equal(resp.status, 200);
+    const body = (await resp.json()) as { url: string };
+    assert.equal(body.url, '/b/orders/2');
+  });
+
+  it('empty replacement strips the prefix', async () => {
+    const resp = await fetchThrough(registry.port, '/strip/ping');
+    assert.equal(resp.status, 200);
+    const body = (await resp.json()) as { url: string };
+    assert.equal(body.url, '/ping');
+  });
+
+  it('route without rewrite still forwards the path as-is', async () => {
+    const target = `http://127.0.0.1:${backend.port}`;
+    const reg = await postJson(`http://127.0.0.1:${registry.port}${ADMIN}/register`, {
+      prefix: '/plain',
+      target,
+    });
+    assert.equal(reg.status, 200);
+    try {
+      const resp = await fetchThrough(registry.port, '/plain/x/y');
+      assert.equal(resp.status, 200);
+      const body = (await resp.json()) as { url: string };
+      assert.equal(body.url, '/plain/x/y');
+    } finally {
+      await postJson(`http://127.0.0.1:${registry.port}${ADMIN}/deregister`, {
+        prefix: '/plain',
+      });
+    }
   });
 });
 

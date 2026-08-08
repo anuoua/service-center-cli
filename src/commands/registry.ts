@@ -6,6 +6,7 @@ import type { Logger } from 'pino';
 import { RouteStore } from '../registry/store.js';
 import { createAdminHandler } from '../registry/admin-handler.js';
 import { createProxyHandler } from '../registry/proxy-handler.js';
+import { loadStaticRoutesFile } from '../registry/static-routes.js';
 import { renderRoutes } from '../registry/ui.js';
 import { createLogger } from '../shared/logging.js';
 
@@ -18,6 +19,8 @@ export type RegistryOptions = {
   logLevel: string;
   /** Render the live services table to stdout. Default: true. */
   ui?: boolean;
+  /** Path to a JSON file of static routes; loaded at startup, reloaded on SIGHUP. */
+  routesFile?: string;
 };
 
 export type RegistryHandle = {
@@ -37,6 +40,22 @@ export async function startRegistry(opts: RegistryOptions): Promise<RegistryHand
   const store = new RouteStore({ adminPrefix: opts.adminPrefix });
   const adminHandler = createAdminHandler(store);
   const proxy = createProxyHandler(store);
+
+  if (opts.routesFile !== undefined) {
+    const loaded = await loadStaticRoutesFile(opts.routesFile);
+    if (!loaded.ok) {
+      throw new Error(loaded.error);
+    }
+    const applied = store.loadStatic(loaded.routes);
+    if (!applied.ok) {
+      const detail = applied.error.detail !== undefined ? `: ${applied.error.detail}` : '';
+      throw new Error(`${applied.error.error}${detail}`);
+    }
+    logger.info(
+      { file: opts.routesFile, count: applied.count },
+      'static routes loaded',
+    );
+  }
 
   const server: Server = http.createServer(
     (req: IncomingMessage, res: ServerResponse) => {
@@ -103,9 +122,40 @@ export async function startRegistry(opts: RegistryOptions): Promise<RegistryHand
     uiTimer.unref();
   }
 
+  const onReload = (): void => {
+    if (opts.routesFile === undefined) return;
+    void loadStaticRoutesFile(opts.routesFile)
+      .then((loaded) => {
+        if (!loaded.ok) {
+          logger.error(
+            { err: loaded.error },
+            'static routes reload failed; keeping previous routes',
+          );
+          return;
+        }
+        const applied = store.loadStatic(loaded.routes);
+        if (!applied.ok) {
+          logger.error(
+            { err: applied.error.detail ?? applied.error.error },
+            'static routes reload failed; keeping previous routes',
+          );
+          return;
+        }
+        logger.info({ count: applied.count }, 'static routes reloaded');
+      })
+      .catch((err: unknown) => {
+        logger.error(
+          { err: err instanceof Error ? err.message : String(err) },
+          'static routes reload failed; keeping previous routes',
+        );
+      });
+  };
+  process.on('SIGHUP', onReload);
+
   async function stop(): Promise<void> {
     clearInterval(timer);
     if (uiTimer) clearInterval(uiTimer);
+    process.off('SIGHUP', onReload);
     await new Promise<void>((resolve) => {
       let settled = false;
       const finish = (): void => {

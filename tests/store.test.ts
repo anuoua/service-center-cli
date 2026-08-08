@@ -119,8 +119,8 @@ describe('RouteStore.resolveTarget', () => {
     const s = new RouteStore({ adminPrefix: '/__registry' });
     s.register({ prefix: '/api', target: 'http://a:1' }, 0);
     s.register({ prefix: '/api/users', target: 'http://b:2' }, 0);
-    assert.equal(s.resolveTarget('/api/users/123'), 'http://b:2');
-    assert.equal(s.resolveTarget('/api/other'), 'http://a:1');
+    assert.deepEqual(s.resolveTarget('/api/users/123'), { target: 'http://b:2' });
+    assert.deepEqual(s.resolveTarget('/api/other'), { target: 'http://a:1' });
   });
 
   it('returns null when nothing is registered', () => {
@@ -156,5 +156,150 @@ describe('RouteStore.sweep', () => {
   it('returns an empty array when the store is empty', () => {
     const s = new RouteStore({ adminPrefix: '/__registry' });
     assert.deepEqual(s.sweep(1000, 100), []);
+  });
+});
+
+describe('RouteStore static routes', () => {
+  it('loadStatic inserts routes flagged static', () => {
+    const s = new RouteStore({ adminPrefix: '/__registry' });
+    const r = s.loadStatic([
+      { prefix: '/legacy/orders', target: 'http://a:1' },
+      { prefix: '/legacy/pay', target: 'http://b:2' },
+    ]);
+    assert.deepEqual(r, { ok: true, count: 2 });
+    assert.deepEqual(s.list(), [
+      { prefix: '/legacy/orders', target: 'http://a:1', lastSeen: 0, static: true },
+      { prefix: '/legacy/pay', target: 'http://b:2', lastSeen: 0, static: true },
+    ]);
+  });
+
+  it('loadStatic replaces the previous static set (reload semantics)', () => {
+    const s = new RouteStore({ adminPrefix: '/__registry' });
+    s.loadStatic([
+      { prefix: '/a', target: 'http://a:1' },
+      { prefix: '/b', target: 'http://b:1' },
+    ]);
+    const r = s.loadStatic([
+      { prefix: '/b', target: 'http://b:2' },
+      { prefix: '/c', target: 'http://c:1' },
+    ]);
+    assert.deepEqual(r, { ok: true, count: 2 });
+    assert.deepEqual(
+      s.list().map((x) => x.prefix),
+      ['/b', '/c'],
+    );
+  });
+
+  it('loadStatic rejects a prefix that does not start with /', () => {
+    const s = new RouteStore({ adminPrefix: '/__registry' });
+    const r = s.loadStatic([{ prefix: 'no-slash', target: 'http://a:1' }]);
+    assert.equal(r.ok, false);
+    if (!r.ok) assert.equal(r.status, 400);
+  });
+
+  it('loadStatic rejects a prefix colliding with the admin prefix', () => {
+    const s = new RouteStore({ adminPrefix: '/__registry' });
+    const r = s.loadStatic([{ prefix: '/__registry', target: 'http://a:1' }]);
+    assert.equal(r.ok, false);
+    if (!r.ok) assert.equal(r.status, 400);
+  });
+
+  it('loadStatic rejects duplicate prefixes without partial application', () => {
+    const s = new RouteStore({ adminPrefix: '/__registry' });
+    s.loadStatic([{ prefix: '/keep', target: 'http://keep:1' }]);
+    const r = s.loadStatic([
+      { prefix: '/x', target: 'http://x:1' },
+      { prefix: '/x', target: 'http://y:1' },
+    ]);
+    assert.equal(r.ok, false);
+    if (!r.ok) assert.equal(r.status, 400);
+    // previous static set is untouched
+    assert.deepEqual(
+      s.list().map((x) => x.prefix),
+      ['/keep'],
+    );
+  });
+
+  it('rejects dynamic register on a static prefix with 409', () => {
+    const s = new RouteStore({ adminPrefix: '/__registry' });
+    s.loadStatic([{ prefix: '/legacy', target: 'http://a:1' }]);
+    const r = s.register({ prefix: '/legacy', target: 'http://b:2' }, 100);
+    assert.equal(r.ok, false);
+    if (!r.ok) {
+      assert.equal(r.status, 409);
+      assert.match(r.error.error, /static route/i);
+    }
+  });
+
+  it('rejects heartbeat on a static prefix with 409', () => {
+    const s = new RouteStore({ adminPrefix: '/__registry' });
+    s.loadStatic([{ prefix: '/legacy', target: 'http://a:1' }]);
+    const r = s.heartbeat({ prefix: '/legacy', target: 'http://a:1' }, 500);
+    assert.equal(r.ok, false);
+    if (!r.ok) assert.equal(r.status, 409);
+  });
+
+  it('rejects deregister on a static prefix with 409', () => {
+    const s = new RouteStore({ adminPrefix: '/__registry' });
+    s.loadStatic([{ prefix: '/legacy', target: 'http://a:1' }]);
+    const r = s.deregister({ prefix: '/legacy' });
+    assert.equal(r.ok, false);
+    if (!r.ok) assert.equal(r.status, 409);
+  });
+
+  it('sweep never evicts static routes', () => {
+    const s = new RouteStore({ adminPrefix: '/__registry' });
+    s.loadStatic([{ prefix: '/legacy', target: 'http://a:1' }]);
+    s.register({ prefix: '/dyn', target: 'http://b:1' }, 100);
+    const evicted = s.sweep(1_000_000, 1);
+    assert.deepEqual(evicted, ['/dyn']);
+    assert.deepEqual(
+      s.list().map((x) => x.prefix),
+      ['/legacy'],
+    );
+  });
+
+  it('static and dynamic routes coexist; longest match wins across both', () => {
+    const s = new RouteStore({ adminPrefix: '/__registry' });
+    s.loadStatic([{ prefix: '/api', target: 'http://static:1' }]);
+    s.register({ prefix: '/api/users', target: 'http://dyn:2' }, 0);
+    assert.deepEqual(s.resolveTarget('/api/other'), { target: 'http://static:1' });
+    assert.deepEqual(s.resolveTarget('/api/users/1'), { target: 'http://dyn:2' });
+  });
+
+  it('resolveTarget returns the rewrite of a static route', () => {
+    const s = new RouteStore({ adminPrefix: '/__registry' });
+    s.loadStatic([
+      {
+        prefix: '/legacy/orders',
+        target: 'http://a:1',
+        rewrite: { pattern: '^/legacy/orders', to: '/orders' },
+      },
+    ]);
+    assert.deepEqual(s.resolveTarget('/legacy/orders/123'), {
+      target: 'http://a:1',
+      rewrite: { pattern: '^/legacy/orders', to: '/orders' },
+    });
+  });
+
+  it('loadStatic stores routes with a rewrite', () => {
+    const s = new RouteStore({ adminPrefix: '/__registry' });
+    const r = s.loadStatic([
+      {
+        prefix: '/legacy/orders',
+        target: 'http://a:1',
+        rewrite: { pattern: '^/legacy/orders', to: '' },
+      },
+    ]);
+    assert.deepEqual(r, { ok: true, count: 1 });
+    assert.deepEqual(s.list(), [
+      {
+        prefix: '/legacy/orders',
+        target: 'http://a:1',
+        lastSeen: 0,
+        static: true,
+        rewrite: { pattern: '^/legacy/orders', to: '' },
+      },
+    ]);
   });
 });

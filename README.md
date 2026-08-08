@@ -69,6 +69,7 @@ sccli server \
 | `-p, --port` | `8080` | Proxy + admin listen port |
 | `-H, --host` | `0.0.0.0` | Listen host |
 | `-A, --admin-prefix` | `/__registry` | Reserved prefix for the admin API (service prefixes can't collide with it) |
+| `-r, --routes <file>` | — | Static routes JSON file, loaded at startup and reloaded on `SIGHUP` |
 | `--ttl` | `30000` | Heartbeat TTL in ms; routes older than this are evicted |
 | `--interval` | `10000` | Sweep interval for eviction |
 | `-l, --log-level` | `info` | `trace` \| `debug` \| `info` \| `warn` \| `error` |
@@ -88,11 +89,63 @@ Logs go to **stderr**; the route table goes to **stdout**.
 
 Re-registering the same prefix overwrites the target (idempotent).
 
+## Static routes (legacy services)
+
+Services that can't register themselves (already-running processes, services on
+other machines, containers, anything you don't want to touch) can be declared
+in a JSON file instead:
+
+```bash
+sccli registry --port 8080 --routes ./routes.json
+```
+
+```json
+[
+  { "prefix": "/legacy/orders", "target": "http://10.0.0.9:8080" },
+  { "prefix": "/legacy/pay",    "target": "http://10.0.0.10:9000" }
+]
+```
+
+Rules:
+
+- Static and dynamic routes coexist; the longest-prefix rule applies across both.
+- Static routes **never expire** — they are exempt from TTL eviction.
+- `register` / `heartbeat` / `deregister` on a static prefix return `409`: static routes are owned by the file, not by any service.
+- Reload the file at runtime without restarting: `kill -HUP <registry-pid>`. A bad file is rejected and the previous routes are kept.
+- The file is validated at startup — syntax errors, missing `target`, or a prefix colliding with the admin prefix abort startup with a clear message.
+- The admin API lists them like any other route, with `"static": true`.
+
+### Path rewriting
+
+Legacy services often don't serve the path you want to expose. Add a `rewrite`
+rule to remap the path before it hits the upstream:
+
+```json
+[
+  {
+    "prefix": "/legacy/orders",
+    "target": "http://10.0.0.9:8080",
+    "rewrite": { "pattern": "^/legacy/orders", "to": "/orders" }
+  },
+  {
+    "prefix": "/static",
+    "target": "http://10.0.0.10:9000",
+    "rewrite": { "pattern": "^/static", "to": "" }
+  }
+]
+```
+
+- `pattern` is a regular expression string (remember to escape backslashes in JSON); `to` is the replacement.
+- `"to": ""` strips the prefix: `/static/ping` → `/ping`.
+- Applies to WebSocket upgrades too.
+- Only static routes can rewrite; dynamic registrations always forward the path as-is.
+- Invalid patterns (or a malformed `rewrite`) fail the file load — the registry refuses to start, or keeps the previous routes on SIGHUP.
+
 ## Routing rules
 
 - `/api/users` matches `/api/users`, `/api/users/123`, but **not** `/api-users` (segment boundary).
 - Longest match wins: `/api` and `/api/users` can coexist; `/api/users/x` goes to the more specific one.
-- Path is forwarded as-is: `GET /api/users/123` reaches the upstream as `/api/users/123`.
+- Path is forwarded as-is: `GET /api/users/123` reaches the upstream as `/api/users/123`. Static routes may opt into path rewriting — see [Static routes](#static-routes-legacy-services).
 - WebSocket upgrades and query strings are handled transparently.
 
 ## Limitations

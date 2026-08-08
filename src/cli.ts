@@ -17,6 +17,7 @@ program
   .option('-p, --port <n>', 'proxy port', '8080')
   .option('-H, --host <str>', 'proxy listen host', '0.0.0.0')
   .option('-A, --admin-prefix <p>', 'admin API prefix', '/__registry')
+  .option('-r, --routes <file>', 'static routes JSON file (loaded at startup; reloaded on SIGHUP)')
   .option('--ttl <ms>', 'heartbeat TTL in ms', '30000')
   .option('--interval <ms>', 'sweep interval in ms', '10000')
   .option('-l, --log-level <str>', 'trace|debug|info|warn|error', 'info')
@@ -28,6 +29,7 @@ program
       ttlMs: Number(opts.ttl),
       intervalMs: Number(opts.interval),
       logLevel: String(opts.logLevel),
+      ...(opts.routes !== undefined ? { routesFile: String(opts.routes) } : {}),
     });
 
     const shutdown = (sig: NodeJS.Signals): void => {
