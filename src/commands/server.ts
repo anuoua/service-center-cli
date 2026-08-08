@@ -4,7 +4,10 @@ import { createLogger } from '../shared/logging.js';
 import { allocatePort } from '../server/port-allocator.js';
 import { startChild } from '../server/child-runner.js';
 import type { ChildHandle } from '../server/child-runner.js';
-import { createRegistrationClient } from '../server/registration-client.js';
+import {
+  createRegistrationClient,
+  isTlsCertificateError,
+} from '../server/registration-client.js';
 import type { RegistrationClient, RpcResult } from '../server/registration-client.js';
 import { detectLanIp } from '../server/lan-ip.js';
 
@@ -56,14 +59,18 @@ export async function runServer(opts: ServerOptions): Promise<number> {
     prefix: string,
     target: string,
   ): Promise<RpcResult> {
+    let last: RpcResult | undefined;
     for (let attempt = 0; attempt <= REGISTER_DELAYS_MS.length; attempt++) {
       const result = await client.register({ prefix, target });
       if (result.ok) return result;
       if (result.status >= 400 && result.status < 500) return result;
+      last = result;
       const delay = REGISTER_DELAYS_MS[attempt];
       if (delay !== undefined) await sleep(delay);
     }
-    return { ok: false, status: 0, error: { error: 'max retries exceeded' } };
+    return (
+      last ?? { ok: false, status: 0, error: { error: 'max retries exceeded' } }
+    );
   }
 
   const registeredPrefixes: string[] = [];
@@ -73,6 +80,12 @@ export async function runServer(opts: ServerOptions): Promise<number> {
       registeredPrefixes.push(prefix);
     } else {
       logger.error({ prefix, result }, 'register failed');
+      if (isTlsCertificateError(result)) {
+        logger.error(
+          { prefix },
+          'hint: the registry serves a self-signed certificate — retry with --insecure to skip TLS verification (dev only)',
+        );
+      }
       for (const p of registeredPrefixes) {
         await client.deregister({ prefix: p }).catch(() => {});
       }

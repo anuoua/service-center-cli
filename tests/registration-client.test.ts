@@ -1,7 +1,7 @@
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 
-import { createRegistrationClient } from '../src/server/registration-client.ts';
+import { createRegistrationClient, isTlsCertificateError } from '../src/server/registration-client.ts';
 import type { CreateClientOptions, FetchFn } from '../src/server/registration-client.ts';
 
 type MockResponse = {
@@ -72,6 +72,62 @@ describe('createRegistrationClient', () => {
         status: 0,
         error: { error: 'network', detail: 'ECONNREFUSED' },
       });
+    });
+
+    it('annotates TLS certificate failures with an --insecure hint', async () => {
+      const certErr = new TypeError('fetch failed');
+      Object.assign(certErr, {
+        cause: new Error('self-signed certificate'),
+      });
+      const fetchFn: MockFetch = async () => {
+        throw certErr;
+      };
+      const client = makeClient(fetchFn);
+      const result = await client.register({
+        prefix: '/api',
+        target: 'http://10.0.0.5:3000',
+      });
+      assert.equal(result.ok, false);
+      if (!result.ok) {
+        const detail = result.error.detail ?? '';
+        assert.match(detail, /TLS certificate verification failed/);
+        assert.match(detail, /--insecure/);
+        assert.equal(isTlsCertificateError(result), true);
+      }
+    });
+
+    it('detects certificate errors nested deeper in the cause chain', async () => {
+      const inner = new Error('self-signed certificate');
+      const middle = new Error('TLS handshake failed', { cause: inner });
+      const outer = new TypeError('fetch failed', { cause: middle });
+      const fetchFn: MockFetch = async () => {
+        throw outer;
+      };
+      const client = makeClient(fetchFn);
+      const result = await client.register({
+        prefix: '/api',
+        target: 'http://10.0.0.5:3000',
+      });
+      assert.equal(result.ok, false);
+      if (!result.ok) {
+        assert.match(result.error.detail ?? '', /TLS certificate verification failed/);
+      }
+    });
+
+    it('does not annotate unrelated network errors', async () => {
+      const fetchFn: MockFetch = async () => {
+        throw new Error('socket hang up');
+      };
+      const client = makeClient(fetchFn);
+      const result = await client.register({
+        prefix: '/api',
+        target: 'http://10.0.0.5:3000',
+      });
+      assert.equal(result.ok, false);
+      if (!result.ok) {
+        assert.equal(result.error.detail, 'socket hang up');
+        assert.equal(isTlsCertificateError(result), false);
+      }
     });
 
     it('POSTs to <base>/register with JSON content-type and stringified body', async () => {

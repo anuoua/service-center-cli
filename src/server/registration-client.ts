@@ -35,6 +35,43 @@ export type FetchFn = (
   init: { method?: string; headers?: Record<string, string>; body?: string },
 ) => Promise<FetchResponse>;
 
+// Error messages/codes that indicate TLS certificate verification failed
+// (e.g. a self-signed registry cert). Matched across the error cause chain.
+const CERT_ERROR_PATTERNS = [
+  /self[\-\s]signed certificate/i,
+  /unable to verify/i,
+  /unable to get local issuer/i,
+  /certificate has expired/i,
+  /unable to get certificate/i,
+] as const;
+
+function isCertificateError(err: unknown): boolean {
+  const seen = new Set<unknown>();
+  let current: unknown = err;
+  while (current !== null && typeof current === 'object') {
+    if (seen.has(current)) break;
+    seen.add(current);
+    const rec = current as { message?: unknown; code?: unknown };
+    const message = typeof rec.message === 'string' ? rec.message : '';
+    const code = typeof rec.code === 'string' ? rec.code : '';
+    if (
+      CERT_ERROR_PATTERNS.some((p) => p.test(message)) ||
+      /CERT|SIGNED|ISSUER|VERIFY/i.test(code)
+    ) {
+      return true;
+    }
+    current = (current as { cause?: unknown }).cause;
+  }
+  return false;
+}
+
+const TLS_HINT_MARKER = 'TLS certificate verification failed';
+
+/** True when an RPC result failed because the registry's TLS certificate was not trusted. */
+export function isTlsCertificateError(result: RpcResult): boolean {
+  return !result.ok && (result.error.detail ?? '').includes(TLS_HINT_MARKER);
+}
+
 function buildBase(registryUrl: string, adminPrefix: string): string {
   const base = registryUrl.replace(/\/+$/, '');
   const prefix = adminPrefix.startsWith('/') ? adminPrefix : '/' + adminPrefix;
@@ -55,7 +92,17 @@ async function callRpc(
     });
   } catch (err) {
     const detail = err instanceof Error ? err.message : String(err);
-    return { ok: false, status: 0, error: { error: 'network', detail } };
+    const certIssue = isCertificateError(err);
+    return {
+      ok: false,
+      status: 0,
+      error: {
+        error: 'network',
+        detail: certIssue
+          ? `${detail} (${TLS_HINT_MARKER} — the registry may use a self-signed certificate; retry with --insecure to skip verification)`
+          : detail,
+      },
+    };
   }
 
   const status = response.status;
