@@ -15,7 +15,12 @@ type MockInit = { method?: string; headers?: Record<string, string>; body?: stri
 
 function makeClient(
   fetchFn: MockFetch,
-  opts: { registryUrl?: string; adminPrefix?: string } = {},
+  opts: {
+    registryUrl?: string;
+    adminPrefix?: string;
+    insecure?: boolean;
+    onAutoInsecure?: () => void;
+  } = {},
 ): ReturnType<typeof createRegistrationClient> {
   const full: CreateClientOptions = {
     registryUrl: opts.registryUrl ?? 'http://127.0.0.1:8080',
@@ -23,6 +28,12 @@ function makeClient(
   };
   if (opts.adminPrefix !== undefined) {
     full.adminPrefix = opts.adminPrefix;
+  }
+  if (opts.insecure === true) {
+    full.insecure = true;
+  }
+  if (opts.onAutoInsecure !== undefined) {
+    full.onAutoInsecure = opts.onAutoInsecure;
   }
   return createRegistrationClient(full);
 }
@@ -74,7 +85,7 @@ describe('createRegistrationClient', () => {
       });
     });
 
-    it('annotates TLS certificate failures with an --insecure hint', async () => {
+    it('falls back to an unverified connection on TLS certificate failure', async () => {
       const certErr = new TypeError('fetch failed');
       Object.assign(certErr, {
         cause: new Error('self-signed certificate'),
@@ -82,17 +93,23 @@ describe('createRegistrationClient', () => {
       const fetchFn: MockFetch = async () => {
         throw certErr;
       };
-      const client = makeClient(fetchFn);
+      let fallbacks = 0;
+      const client = makeClient(fetchFn, {
+        onAutoInsecure: () => {
+          fallbacks += 1;
+        },
+      });
+      // The secure fetch always throws; the fallback retry is a real
+      // (unverified) connection that fails because no registry is listening.
       const result = await client.register({
         prefix: '/api',
         target: 'http://10.0.0.5:3000',
       });
+      assert.equal(fallbacks, 1);
       assert.equal(result.ok, false);
       if (!result.ok) {
-        const detail = result.error.detail ?? '';
-        assert.match(detail, /TLS certificate verification failed/);
-        assert.match(detail, /--insecure/);
-        assert.equal(isTlsCertificateError(result), true);
+        assert.equal(result.status, 0);
+        assert.equal(result.error.error, 'network');
       }
     });
 
@@ -103,22 +120,74 @@ describe('createRegistrationClient', () => {
       const fetchFn: MockFetch = async () => {
         throw outer;
       };
-      const client = makeClient(fetchFn);
+      let fallbacks = 0;
+      const client = makeClient(fetchFn, {
+        onAutoInsecure: () => {
+          fallbacks += 1;
+        },
+      });
+      await client.register({ prefix: '/api', target: 'http://10.0.0.5:3000' });
+      assert.equal(fallbacks, 1);
+    });
+
+    it('remembers the fallback for subsequent calls', async () => {
+      const certErr = new TypeError('fetch failed');
+      Object.assign(certErr, { cause: new Error('self-signed certificate') });
+      let secureCalls = 0;
+      let fallbacks = 0;
+      const fetchFn: MockFetch = async () => {
+        secureCalls += 1;
+        throw certErr;
+      };
+      const client = makeClient(fetchFn, {
+        onAutoInsecure: () => {
+          fallbacks += 1;
+        },
+      });
+      await client.register({ prefix: '/api', target: 'http://10.0.0.5:3000' });
+      assert.equal(secureCalls, 1);
+      assert.equal(fallbacks, 1);
+
+      // Second call goes straight to the unverified path: no more secure
+      // fetches, no second fallback notification.
+      const result = await client.deregister({ prefix: '/api' });
+      assert.equal(secureCalls, 1);
+      assert.equal(fallbacks, 1);
+      assert.equal(result.ok, false);
+    });
+
+    it('skips verification up front when insecure is set (no fallback)', async () => {
+      let secureCalls = 0;
+      let fallbacks = 0;
+      const fetchFn: MockFetch = async () => {
+        secureCalls += 1;
+        return okResponse();
+      };
+      const client = makeClient(fetchFn, {
+        insecure: true,
+        onAutoInsecure: () => {
+          fallbacks += 1;
+        },
+      });
       const result = await client.register({
         prefix: '/api',
         target: 'http://10.0.0.5:3000',
       });
+      assert.equal(secureCalls, 0);
+      assert.equal(fallbacks, 0);
       assert.equal(result.ok, false);
-      if (!result.ok) {
-        assert.match(result.error.detail ?? '', /TLS certificate verification failed/);
-      }
     });
 
     it('does not annotate unrelated network errors', async () => {
       const fetchFn: MockFetch = async () => {
         throw new Error('socket hang up');
       };
-      const client = makeClient(fetchFn);
+      let fallbacks = 0;
+      const client = makeClient(fetchFn, {
+        onAutoInsecure: () => {
+          fallbacks += 1;
+        },
+      });
       const result = await client.register({
         prefix: '/api',
         target: 'http://10.0.0.5:3000',
@@ -128,6 +197,7 @@ describe('createRegistrationClient', () => {
         assert.equal(result.error.detail, 'socket hang up');
         assert.equal(isTlsCertificateError(result), false);
       }
+      assert.equal(fallbacks, 0);
     });
 
     it('POSTs to <base>/register with JSON content-type and stringified body', async () => {

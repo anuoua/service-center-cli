@@ -112,19 +112,49 @@ describe('registry with --tls (self-signed)', () => {
     }
   });
 
-  it('without --insecure the client rejects the self-signed certificate', async () => {
+  it('without --insecure the client auto-falls back to an unverified connection', async () => {
+    let fallbacks = 0;
     const client = createRegistrationClient({
       registryUrl: `https://127.0.0.1:${registry.port}`,
+      onAutoInsecure: () => {
+        fallbacks += 1;
+      },
     });
-    const result = await client.register({
-      prefix: '/api/nope',
-      target: 'http://127.0.0.1:1',
+    const reg = await client.register({
+      prefix: '/api/auto',
+      target: `http://127.0.0.1:${backend.port}`,
     });
-    assert.equal(result.ok, false);
-    if (!result.ok) {
-      assert.equal(result.status, 0);
-      assert.match(result.error.error, /network/);
-    }
+    assert.deepEqual(reg, { ok: true, status: 200 });
+    assert.equal(fallbacks, 1);
+
+    // Subsequent calls remember the fallback: heartbeat works without
+    // another failure/retry cycle.
+    const hb = await client.heartbeat({
+      prefix: '/api/auto',
+      target: `http://127.0.0.1:${backend.port}`,
+    });
+    assert.deepEqual(hb, { ok: true, status: 200 });
+    assert.equal(fallbacks, 1);
+
+    await client.deregister({ prefix: '/api/auto' });
+  });
+
+  it('with --insecure verification is skipped up front (no fallback)', async () => {
+    let fallbacks = 0;
+    const client = createRegistrationClient({
+      registryUrl: `https://127.0.0.1:${registry.port}`,
+      insecure: true,
+      onAutoInsecure: () => {
+        fallbacks += 1;
+      },
+    });
+    const reg = await client.register({
+      prefix: '/api/insecure',
+      target: `http://127.0.0.1:${backend.port}`,
+    });
+    assert.deepEqual(reg, { ok: true, status: 200 });
+    assert.equal(fallbacks, 0);
+    await client.deregister({ prefix: '/api/insecure' });
   });
 });
 

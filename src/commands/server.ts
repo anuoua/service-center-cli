@@ -4,10 +4,7 @@ import { createLogger } from '../shared/logging.js';
 import { allocatePort } from '../server/port-allocator.js';
 import { startChild } from '../server/child-runner.js';
 import type { ChildHandle } from '../server/child-runner.js';
-import {
-  createRegistrationClient,
-  isTlsCertificateError,
-} from '../server/registration-client.js';
+import { createRegistrationClient } from '../server/registration-client.js';
 import type { RegistrationClient, RpcResult } from '../server/registration-client.js';
 import { detectLanIp } from '../server/lan-ip.js';
 
@@ -52,6 +49,12 @@ export async function runServer(opts: ServerOptions): Promise<number> {
   const client: RegistrationClient = createRegistrationClient({
     registryUrl: opts.registryUrl,
     ...(opts.insecure === true ? { insecure: true } : {}),
+    onAutoInsecure: () => {
+      logger.warn(
+        {},
+        'TLS certificate verification failed — retrying without verification; the registry certificate is not trusted (add --insecure to skip the retry)',
+      );
+    },
   });
 
   async function registerPrefix(
@@ -80,12 +83,6 @@ export async function runServer(opts: ServerOptions): Promise<number> {
       registeredPrefixes.push(prefix);
     } else {
       logger.error({ prefix, result }, 'register failed');
-      if (isTlsCertificateError(result)) {
-        logger.error(
-          { prefix },
-          'hint: the registry serves a self-signed certificate — retry with --insecure to skip TLS verification (dev only)',
-        );
-      }
       for (const p of registeredPrefixes) {
         await client.deregister({ prefix: p }).catch(() => {});
       }

@@ -21,8 +21,14 @@ export type CreateClientOptions = {
   registryUrl: string;
   adminPrefix?: string;
   fetchFn?: FetchFn;
-  /** Skip TLS certificate verification (self-signed dev certificates). */
+  /**
+   * Skip TLS certificate verification up front. Without this, the client
+   * automatically falls back to an unverified connection on the first
+   * certificate failure (see `onAutoInsecure`).
+   */
   insecure?: boolean;
+  /** Called once when a certificate failure triggers the automatic fallback. */
+  onAutoInsecure?: () => void;
 };
 
 export type FetchResponse = {
@@ -99,7 +105,7 @@ async function callRpc(
       error: {
         error: 'network',
         detail: certIssue
-          ? `${detail} (${TLS_HINT_MARKER} — the registry may use a self-signed certificate; retry with --insecure to skip verification)`
+          ? `${detail} (${TLS_HINT_MARKER} — the registry certificate is not trusted)`
           : detail,
       },
     };
@@ -172,14 +178,31 @@ function insecureFetch(
 
 export function createRegistrationClient(opts: CreateClientOptions): RegistrationClient {
   const base = buildBase(opts.registryUrl, opts.adminPrefix ?? '/__registry');
-  const fetchFn: FetchFn =
-    opts.fetchFn ??
-    (opts.insecure === true
-      ? insecureFetch
-      : (globalThis.fetch as unknown as FetchFn));
+  const secureFetch: FetchFn =
+    opts.fetchFn ?? (globalThis.fetch as unknown as FetchFn);
+  const skipVerify = opts.insecure === true;
+
+  // Once a certificate failure triggers the fallback, remember it so every
+  // later call (heartbeat, deregister, ...) goes straight to the unverified
+  // path instead of failing and retrying each time.
+  let autoInsecure = false;
+
+  const rpc = async (path: string, body: unknown): Promise<RpcResult> => {
+    if (skipVerify || autoInsecure) {
+      return callRpc(insecureFetch, `${base}${path}`, body);
+    }
+    const result = await callRpc(secureFetch, `${base}${path}`, body);
+    if (!result.ok && isTlsCertificateError(result)) {
+      autoInsecure = true;
+      opts.onAutoInsecure?.();
+      return callRpc(insecureFetch, `${base}${path}`, body);
+    }
+    return result;
+  };
+
   return {
-    register: (req) => callRpc(fetchFn, `${base}/register`, req),
-    heartbeat: (req) => callRpc(fetchFn, `${base}/heartbeat`, req),
-    deregister: (req) => callRpc(fetchFn, `${base}/deregister`, req),
+    register: (req) => rpc('/register', req),
+    heartbeat: (req) => rpc('/heartbeat', req),
+    deregister: (req) => rpc('/deregister', req),
   };
 }
