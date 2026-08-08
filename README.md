@@ -86,9 +86,8 @@ Logs go to **stderr**; the route table goes to **stdout**.
 | `-r, --registry` | _required_ | Registry URL |
 | `-x, --prefix` | _required_ | Route prefix (also the route's identity) |
 | `-B, --bind-host` | auto-detected LAN IP | Hostname/IP the registry uses to reach this host |
-| `--heartbeat` | `10000` | Heartbeat interval in ms |
+| `--heartbeat` | `10000` | Heartbeat interval ms |
 | `--ready-timeout` | `0` | Max wait for the child to bind its port in ms; `0` = never timeout |
-| `--insecure` | — | Skip TLS certificate verification when talking to the registry (self-signed certs) |
 | `-- <cmd> [args...]` | _required_ | Child command; `{port}` substituted, `PORT` env injected |
 
 Re-registering the same prefix overwrites the target (idempotent).
@@ -113,8 +112,8 @@ sccli registry --tls-cert ./server.crt --tls-key ./server.key
   [mkcert](https://github.com/FiloSottile/mkcert) and pass them via
   `--tls-cert`/`--tls-key`.
 - The route table shows `https://` URLs; WebSocket upgrades work over `wss`.
-- Services talking to the registry over TLS must skip verification for
-  self-signed certs: add `--insecure` to `sccli server` (dev only).
+- `sccli server` skips TLS certificate verification by default, so it works
+  out of the box against a self-signed registry (dev tool trade-off).
 - `--tls` cannot be combined with `--tls-cert`/`--tls-key`; the two files must
   be provided together.
 

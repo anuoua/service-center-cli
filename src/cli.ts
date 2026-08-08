@@ -78,7 +78,6 @@ program
   .option('-B, --bind-host <str>', 'target hostname/IP the registry should use to reach this host; defaults to detected LAN IP (127.0.0.1 when nothing found)')
   .option('--heartbeat <ms>', 'heartbeat interval ms', '10000')
   .option('--ready-timeout <ms>', 'max wait for child to bind its port; 0 = never timeout', '0')
-  .option('--insecure', 'skip TLS certificate verification when talking to the registry (self-signed certs)')
   .option('-l, --log-level <str>', 'trace|debug|info|warn|error', 'info')
   .allowExcessArguments()
   .action(async (opts) => {
@@ -103,7 +102,6 @@ program
       readyTimeoutMs: Number(opts.readyTimeout),
       logLevel: String(opts.logLevel),
       childCommand,
-      ...(opts.insecure ? { insecure: true } : {}),
       ...(opts.bindHost !== undefined ? { bindHost: String(opts.bindHost) } : {}),
       ...(childRest !== undefined ? { childArgs: childRest } : {}),
     };

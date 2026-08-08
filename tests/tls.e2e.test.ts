@@ -92,10 +92,9 @@ describe('registry with --tls (self-signed)', () => {
     assert.deepEqual(JSON.parse(res.body), []);
   });
 
-  it('insecure registration client can register and proxy traffic works over https', async () => {
+  it('registration client works against the self-signed registry by default', async () => {
     const client = createRegistrationClient({
       registryUrl: `https://127.0.0.1:${registry.port}`,
-      insecure: true,
     });
     const reg = await client.register({
       prefix: '/api/tls',
@@ -109,21 +108,6 @@ describe('registry with --tls (self-signed)', () => {
       assert.deepEqual(JSON.parse(proxied.body), { url: '/api/tls/hello' });
     } finally {
       await client.deregister({ prefix: '/api/tls' });
-    }
-  });
-
-  it('without --insecure the client rejects the self-signed certificate', async () => {
-    const client = createRegistrationClient({
-      registryUrl: `https://127.0.0.1:${registry.port}`,
-    });
-    const result = await client.register({
-      prefix: '/api/nope',
-      target: 'http://127.0.0.1:1',
-    });
-    assert.equal(result.ok, false);
-    if (!result.ok) {
-      assert.equal(result.status, 0);
-      assert.match(result.error.error, /network/);
     }
   });
 });
@@ -158,7 +142,6 @@ describe('registry with provided cert files', () => {
   it('serves https and proxies to a backend', async () => {
     const client = createRegistrationClient({
       registryUrl: `https://127.0.0.1:${registry.port}`,
-      insecure: true,
     });
     const reg = await client.register({
       prefix: '/api/cert',

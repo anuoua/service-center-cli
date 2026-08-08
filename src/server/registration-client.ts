@@ -21,8 +21,6 @@ export type CreateClientOptions = {
   registryUrl: string;
   adminPrefix?: string;
   fetchFn?: FetchFn;
-  /** Skip TLS certificate verification (self-signed dev certificates). */
-  insecure?: boolean;
 };
 
 export type FetchResponse = {
@@ -86,9 +84,9 @@ async function callRpc(
   };
 }
 
-// fetch-like client that ignores TLS certificate verification, for talking
-// to a registry that serves a self-signed certificate. Only used in
-// `--insecure` mode; keeps the zero-extra-dependency story intact.
+// Default fetch implementation. Skips TLS certificate verification so
+// `sccli server` works out of the box against a registry serving a
+// self-signed certificate (`sccli registry --tls`) — this is a dev tool.
 function insecureFetch(
   url: string,
   init: { method?: string; headers?: Record<string, string>; body?: string },
@@ -125,11 +123,7 @@ function insecureFetch(
 
 export function createRegistrationClient(opts: CreateClientOptions): RegistrationClient {
   const base = buildBase(opts.registryUrl, opts.adminPrefix ?? '/__registry');
-  const fetchFn: FetchFn =
-    opts.fetchFn ??
-    (opts.insecure === true
-      ? insecureFetch
-      : (globalThis.fetch as unknown as FetchFn));
+  const fetchFn: FetchFn = opts.fetchFn ?? insecureFetch;
   return {
     register: (req) => callRpc(fetchFn, `${base}/register`, req),
     heartbeat: (req) => callRpc(fetchFn, `${base}/heartbeat`, req),
